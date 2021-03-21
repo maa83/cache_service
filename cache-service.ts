@@ -27,17 +27,24 @@ interface IHashable {
 class Expirable<T> {
     public ticket: TimeTicket;
     public trackedData: T;
-    constructor(data: T) {
+    constructor(data: T, ticket: TimeTicket) {
         this.trackedData = data;
+        this.ticket = ticket;
+    }
+
+    public unwrap(): T {
+        return this.trackedData;
     }
 }
+
+type CompType<T> = {new(...args:any[]):T};
 
 class Hashable {
     public hash(identifier?: string|number): string {
         return Hashable.generateHash(this.constructor.name, identifier);
     }
 
-    static hash<T extends Hashable>(type: {new():T}, identifier?: string|number): string {
+    static hash<T extends Hashable>(type: CompType<T>, identifier?: string|number): string {
         return Hashable.generateHash(type.name, identifier);
     }
 
@@ -46,15 +53,13 @@ class Hashable {
     }
 }
 
-type CompType<T> = {new(...args:any[]):T};
-
 class CacheService {
 
-    private cacheMap: Map<string, any>;
+    private cacheMap: Map<string, Expirable<any>>;
     private callTickets: Map<string, TimeTicket>
 
     constructor() {
-        this.cacheMap = new Map<string, any>();
+        this.cacheMap = new Map<string, Expirable<any>>();
         this.callTickets = new Map<string,TimeTicket>();
     }
 
@@ -83,7 +88,8 @@ class CacheService {
     }
 
     has<T extends Hashable>(modelType: CompType<T>, id: number | string): boolean {
-        return this.cacheMap.has(Hashable.hash<T>(modelType, id));
+        const key = Hashable.hash<T>(modelType, id);
+        return this.cacheMap.has(key) && !this.cacheMap.get(key).ticket.isExpired;
     }
 
     getAll<T extends Hashable>(compType?: CompType<T>): T[] {
@@ -106,20 +112,21 @@ class CacheService {
     }
 
     get<T extends Hashable>(modelType: CompType<T>, id?: number | string): T {
-        return this.cacheMap.get(Hashable.hash<T>(modelType, id));
+        return this.cacheMap.get(Hashable.hash<T>(modelType, id)).unwrap();
     }
 
     set<T extends Hashable>(model: T): void {
-        console.log('saving model', model);
-        this.cacheMap.set(model.hash(), model);
+        let expirableModel = new Expirable(model, TimeTicket.fromSeconds(120))
+        this.cacheMap.set(model.hash(), expirableModel);
     }
 
-    delete(id: number | string): void {
-
+    delete<T extends Hashable>(compType: CompType<T>, id: number | string): void {
+        this.cacheMap.delete(Hashable.hash(compType, id));
     }
 
-    clear(): void {
-        this.cacheMap.clear();
+    clear<T>(compType?: CompType<T>): void {
+        if(compType) this.getKeysOfType(compType).forEach(this.cacheMap.delete);
+        else this.cacheMap.clear();
     }
 
     assignTicket(methodName: string, ticket: TimeTicket) {
