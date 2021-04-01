@@ -1,3 +1,9 @@
+// Type Definitions
+type ComponentType<T> = { new(...args:any[]): T; };
+type EventType<T> = ComponentType<T> & { type: string; };
+
+
+// Classes
 class TimeTicket {
     private expiresAt: Date;
     private invalidated = false;
@@ -37,14 +43,12 @@ class Expirable<T> {
     }
 }
 
-type CompType<T> = {new(...args:any[]):T};
-
 class Hashable {
     public hash(identifier?: string|number): string {
         return Hashable.generateHash(this.constructor.name, identifier);
     }
 
-    static hash<T extends Hashable>(type: CompType<T>, identifier?: string|number): string {
+    static hash<T extends Hashable>(type: ComponentType<T>, identifier?: string|number): string {
         return Hashable.generateHash(type.name, identifier);
     }
 
@@ -63,12 +67,12 @@ class CacheService {
         this.callTickets = new Map<string,TimeTicket>();
     }
 
-    public hasRecords<T extends Hashable>(compType?: CompType<T>): boolean {
+    public hasRecords<T extends Hashable>(compType?: ComponentType<T>): boolean {
         if(compType) return this.getKeysOfType(compType).length > 0;
         return this.cacheMap.size > 0;
     }
 
-    private getKeysOfType<T>(compType: CompType<T>) {
+    private getKeysOfType<T>(compType: ComponentType<T>) {
         let keys = [];
         for(let key of this.cacheMap.keys()) {
             if(key.indexOf(compType.name) !== -1) {
@@ -78,7 +82,7 @@ class CacheService {
         return keys;
     }
 
-    private getKeysOfTypeAsync<T>(compType: CompType<T>): Promise<string[]> {
+    private getKeysOfTypeAsync<T>(compType: ComponentType<T>): Promise<string[]> {
         return new Promise<string[]>((res, rej) => {
             try {
                 res(this.getKeysOfType(compType));
@@ -87,12 +91,12 @@ class CacheService {
         });
     }
 
-    has<T extends Hashable>(modelType: CompType<T>, id: number | string): boolean {
+    has<T extends Hashable>(modelType: ComponentType<T>, id: number | string): boolean {
         const key = Hashable.hash<T>(modelType, id);
         return this.cacheMap.has(key) && !this.cacheMap.get(key).ticket.isExpired;
     }
 
-    getAll<T extends Hashable>(compType?: CompType<T>): T[] {
+    getAll<T extends Hashable>(compType?: ComponentType<T>): T[] {
         return ( () => {
             if(compType) {
                 return this.getKeysOfType(compType).map(key => this.cacheMap.get(key));
@@ -105,13 +109,13 @@ class CacheService {
         })();
     }
 
-    getAllAsync<T extends Hashable>(compType?: CompType<T>): Promise<T[]> {
+    getAllAsync<T extends Hashable>(compType?: ComponentType<T>): Promise<T[]> {
         return new Promise((res, rej) => {
             res(this.getAll(compType));
         });
     }
 
-    get<T extends Hashable>(modelType: CompType<T>, id?: number | string): T {
+    get<T extends Hashable>(modelType: ComponentType<T>, id?: number | string): T {
         return this.cacheMap.get(Hashable.hash<T>(modelType, id)).unwrap();
     }
 
@@ -120,11 +124,11 @@ class CacheService {
         this.cacheMap.set(model.hash(), expirableModel);
     }
 
-    delete<T extends Hashable>(compType: CompType<T>, id: number | string): void {
+    delete<T extends Hashable>(compType: ComponentType<T>, id: number | string): void {
         this.cacheMap.delete(Hashable.hash(compType, id));
     }
 
-    clear<T>(compType?: CompType<T>): void {
+    clear<T>(compType?: ComponentType<T>): void {
         if(compType) this.getKeysOfType(compType).forEach(this.cacheMap.delete);
         else this.cacheMap.clear();
     }
@@ -140,7 +144,7 @@ class CacheService {
 }
 
 class CacheServiceFactory {
-    getCacheBucket<T>(serviceType: CompType<T>) : CacheService {
+    getCacheBucket<T>(serviceType: ComponentType<T>) : CacheService {
         if (this.serviceBuckets.has(serviceType.name)) return this.serviceBuckets.get(serviceType.name)
         else {
             const service = new CacheService();
@@ -272,3 +276,45 @@ someService.getAllDataAsync().then(res => {
 // method call ticket / item ticket / method call ticket with arguments
 // implement expirable.
 // async ?
+
+class SomeEvent<T> {
+    public static readonly type: string = 'SomeEvent';
+    public eventArgs: T
+
+    constructor(eventArgs?: T) {
+        this.eventArgs = eventArgs;
+    }
+
+    public getType(): string {
+        return (this.constructor as EventType<T> ).type;
+    }
+
+    public static getType(): string {
+        return this.type;
+    }
+}
+
+class SpecificEvent extends SomeEvent<string> {
+    public static readonly type: string = 'SpecificEvent';
+
+    constructor(eventArgs?: string) {
+        super(eventArgs);
+    }
+}
+
+class SpecificEvent2 extends SomeEvent<string> {
+    public static readonly type: string = 'SpecificEvent2';
+
+    constructor(eventArgs?: string) {
+        super(eventArgs);
+    }
+}
+
+function logClass<T extends SomeEvent<any>>( comp: { new(...args: any[]): T; getType: () => string } ) {
+    console.log(comp.getType());
+}
+
+logClass(SpecificEvent);
+logClass(SpecificEvent2);
+console.log(new SpecificEvent2().getType());
+console.log(new SpecificEvent().getType());
