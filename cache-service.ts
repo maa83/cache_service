@@ -1,6 +1,8 @@
+import { Subject, Subscription } from "rxjs"
+
 // Type Definitions
 type ComponentType<T> = { new(...args:any[]): T; };
-type EventType<T> = ComponentType<T> & { type: string; };
+type EventType<T> = ComponentType<T> & { getType(): string; };
 
 
 // Classes
@@ -277,44 +279,138 @@ someService.getAllDataAsync().then(res => {
 // implement expirable.
 // async ?
 
-class SomeEvent<T> {
-    public static readonly type: string = 'SomeEvent';
-    public eventArgs: T
+
+export class BaseEvent<T> {
+    public readonly eventArgs: T;
 
     constructor(eventArgs?: T) {
         this.eventArgs = eventArgs;
     }
 
+    protected static type = 'BaseEvent';
     public getType(): string {
-        return (this.constructor as EventType<T> ).type;
+        return (this.constructor as EventType<T> & { type: string }).type;
     }
-
     public static getType(): string {
         return this.type;
     }
 }
 
-class SpecificEvent extends SomeEvent<string> {
-    public static readonly type: string = 'SpecificEvent';
+export class SpecificEvent extends BaseEvent<string> {
+    protected static type = 'SpecificEvent';
+}
 
-    constructor(eventArgs?: string) {
-        super(eventArgs);
+export class ApplicationStateService {
+
+    // TODO M.A.: write tests:
+    // * eventMap should be empty when no event has been subscribed to
+    // * eventMap should remove a recrod alongside the underlying Observable should all subscribers unsubscribe.
+    // * eventMap should create a new record with an Observable whenever an event is being subscribed to and a record for that specific event type doen't exists
+    // otherwise use the existing one.
+
+    // subscribe to one event type? or subscribe to systemwide changes?
+    private globalState: Map<string, any>;
+    private eventMap: Map<any, Subject<any>>;
+
+    constructor() {
+        this.globalState = new Map<string, any>();
+        this.eventMap = new Map<string, Subject<any>>();
+    }
+
+    public subscribeToEvent<U,T extends BaseEvent<U>>(eventType: EventType<T>, next: (eventArgs: U) => void, error?: (error: any) => void, complete?: () => void): Subscription {
+        const eventTypeName = eventType.getType();
+        let eventObservable: Subject<U>;
+        if (this.eventMap.has(eventTypeName)) eventObservable = this.eventMap.get(eventTypeName);
+        else {
+            eventObservable = new Subject<U>();
+            this.eventMap.set(eventTypeName, eventObservable);
+        }
+
+        console.log(['subscribed to Event Type:', eventTypeName].join(' '));
+        const sub = eventObservable.subscribe(next, error, complete);
+
+        return new Subscription(() => {
+            sub.unsubscribe();
+            console.log(['unsubscribed from Event Type:', eventTypeName].join(' '));
+            if (this.eventMap.get(eventTypeName).observers.length <= 0) {
+                this.eventMap.delete(eventTypeName);
+                console.log(['Subject of Type:', eventTypeName, 'has been removed'].join(' '));
+            }
+        });
+    }
+
+    public raiseEvent<T extends BaseEvent<any>>(pxlEvent: T) {
+        const eventType = pxlEvent.getType();
+        console.log(`event type: ${eventType} has been raised with args: ${pxlEvent.eventArgs}`);
+        if (this.eventMap.has(eventType)) {
+            this.eventMap.get(eventType).next(pxlEvent.eventArgs);
+        } else {
+            console.log(`no subscribers to event type: ${eventType}`);
+            // should something happen?
+        }
+    }
+
+    // use a library?
+    public registerToState(component: string, state: any) {
+        this.globalState.set(component, state);
+
+        return {
+            unregister: (() => { this.unregisterFromState(component); }).bind(this)
+        };
+    }
+
+    // still requires a lot of work
+    // register to global state?
+    // component passes it self?
+
+    public retrieveComponentState(component: string): any {
+        return this.globalState.get(component);
+    }
+
+    public unregisterFromState(component: string): void {
+        this.globalState.delete(component);
     }
 }
 
-class SpecificEvent2 extends SomeEvent<string> {
-    public static readonly type: string = 'SpecificEvent2';
-
-    constructor(eventArgs?: string) {
-        super(eventArgs);
+// hmmm, no intellisense support for the resulting object.
+function keysToProperties(obj: any): any {
+    const props = {};
+    for (const prop in obj) {
+        if (typeof (obj[prop]) === 'object') {
+            Object.assign(props, { ...keysToProperties(obj[prop]) }); // = keysToProperties(prop);
+        } else {
+            Object.assign(props, { [prop]: prop });
+        }
     }
+    return props;
 }
 
-function logClass<T extends SomeEvent<any>>( comp: { new(...args: any[]): T; getType: () => string } ) {
+function logClass<T extends BaseEvent<any>>( comp: { new(...args: any[]): T; getType: () => string } ) {
     console.log(comp.getType());
 }
 
+logClass(BaseEvent);
 logClass(SpecificEvent);
-logClass(SpecificEvent2);
-console.log(new SpecificEvent2().getType());
+console.log(new BaseEvent().getType());
 console.log(new SpecificEvent().getType());
+const appService = new ApplicationStateService();
+const eventSub = appService.subscribeToEvent(SpecificEvent, (eventArgs: string) => {
+    console.log(eventArgs);
+});
+appService.raiseEvent(new SpecificEvent('Ello from Specific Event'));
+eventSub.unsubscribe();
+
+
+class SpecificEventArgs {
+    constructor(public name: string, public id: number) {
+    }
+}
+class ClickEvent extends BaseEvent<SpecificEventArgs> {
+    protected static type: string = "ClickEvent";
+}
+
+const clickEventSub = appService.subscribeToEvent(ClickEvent, (eventArgs: SpecificEventArgs) => {
+    console.log(eventArgs.id, eventArgs.name);
+});
+appService.raiseEvent(new ClickEvent({id: 1, name: 'Mohammad'}));
+clickEventSub.unsubscribe();

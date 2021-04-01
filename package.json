@@ -1,5 +1,9 @@
 {
+  "type": "module",
   "devDependencies": {
     "typescript": "^4.2.3"
+  },
+  "dependencies": {
+    "rxjs": "^6.6.7"
   }
 }

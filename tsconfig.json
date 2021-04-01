@@ -1,6 +1,10 @@
 {
     "compilerOptions": {
         "target": "ES2015",
-        "lib": ["ES2015", "DOM"]
-    }
+        "lib": ["ES2015", "DOM"],
+        "moduleResolution": "Node"
+    },
+    "files": [
+        "cache-service.ts"
+    ]
 }
